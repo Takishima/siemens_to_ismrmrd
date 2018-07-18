@@ -472,6 +472,8 @@ int main(int argc, char *argv[] )
     bool header_only = false;
     bool append_buffers = false;
 
+    bool ignore_adj_scans = false;
+    bool print_info = false;
     bool list = false;
     std::string to_extract;
 
@@ -483,7 +485,7 @@ int main(int argc, char *argv[] )
             ("version,v",               "Prints converter version and ISMRMRD version")
             ("file,f",                  po::value<std::string>(&siemens_dat_filename), "<SIEMENS dat file>")
             ("measNum,z",               po::value<unsigned int>(&measurement_number)->default_value(1), "<Measurement number>")
-    ("pMap,m",                  po::value<std::string>(&parammap_file), "<Parameter map XML file>")
+	    ("pMap,m",                  po::value<std::string>(&parammap_file), "<Parameter map XML file>")
             ("pMapStyle,x",             po::value<std::string>(&parammap_xsl), "<Parameter stylesheet XSL file>")
             ("user-map",                po::value<std::string>(&usermap_file), "<Provide a parameter map XML file>")
             ("user-stylesheet",         po::value<std::string>(&usermap_xsl), "<Provide a parameter stylesheet XSL file>")
@@ -496,6 +498,8 @@ int main(int argc, char *argv[] )
             ("headerOnly,H",            po::value<bool>(&header_only)->implicit_value(true), "<HEADER ONLY flag (create xml header only)>")
             ("bufferAppend,B",          po::value<bool>(&append_buffers)->implicit_value(true), "<Append Siemens protocol buffers (bas64) to user parameters>")
             ("studyDate",               po::value<std::string>(&study_date_user_supplied), "<User can supply study date, in the format of yyyy-mm-dd>")
+            ("printInfo,p",             po::bool_switch(&print_info), "Print information about SIEMENS dat file and exit")
+            ("ignoreAdjustment,i",      po::bool_switch(&ignore_adj_scans), "Ignore adjustment scans when processing SIEMENS dat file")
             ;
 
     po::options_description display_options("Allowed options");
@@ -517,6 +521,8 @@ int main(int argc, char *argv[] )
             ("headerOnly,H",            "<HEADER ONLY flag (create xml header only)>")
             ("bufferAppend,B",          "<Append protocol buffers>")
             ("studyDate",               "<User can supply study date, in the format of yyyy-mm-dd>")
+            ("printInfo,p",             "Print information about SIEMENS dat file and exit")
+            ("ignoreAdjustment",        "Ignore adjustment scans when processing SIEMENS dat file")
             ;
 
     po::variables_map vm;
@@ -685,6 +691,23 @@ int main(int argc, char *argv[] )
 
     std::vector<MrParcRaidFileEntry> ParcFileEntries = readParcFileEntries(siemens_dat, ParcRaidHead, VBFILE);
 
+    if (ignore_adj_scans) {
+	auto i(measurement_number-1);
+	for (; i < ParcRaidHead.count_
+		 && ParcFileEntries[i].protName_
+		 && (std::string(ParcFileEntries[i].protName_) == "AdjCoilSens"
+		     || std::string(ParcFileEntries[i].protName_) == "AdjQuietCoilSens") ; ++i) {
+	    std::cout << "Ignoring protocol: " << ParcFileEntries[i].protName_ << std::endl;
+	}
+
+	measurement_number = i+1;
+
+	if (measurement_number > ParcRaidHead.count_) {
+	    std::cout << "Could not find a non-adjustment scan in the Siemens dat file" << std::endl;
+	    return -1;
+	}
+    }
+
     // find the beginning of the desired measurement
     siemens_dat.seekg(ParcFileEntries[measurement_number-1].off_, std::ios::beg);
 
@@ -756,6 +779,10 @@ int main(int argc, char *argv[] )
     //Append buffers to xml_config if requested
     if (append_buffers) {
         append_buffers_to_xml_header(buffers, num_buffers, header);
+    }
+
+    if (print_info) {
+	return 0;
     }
 
     // Free memory used for MeasurementHeaderBuffers
